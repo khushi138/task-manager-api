@@ -7,6 +7,7 @@ import requests
 import redis
 from dotenv import load_dotenv
 from sqlalchemy import Index
+from urllib.parse import quote
 
 # Load environment variables
 load_dotenv()
@@ -14,9 +15,15 @@ load_dotenv()
 # Initialize the Flask app
 app = Flask(__name__)
 
+
+
+password = quote(os.getenv("DB_PASSWORD"))
 # Setup the database connection
-app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+# app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql://{os.getenv('DB_USER')}:{password}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET')
 
 # Initialize database, bcrypt, JWT, and Redis
 db = SQLAlchemy(app)
@@ -28,6 +35,7 @@ cache = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=Tr
 
 # Database models
 class User(db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(255), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
@@ -37,8 +45,9 @@ class User(db.Model):
 
 
 class Task(db.Model):
+    __tablename__ = 'tasks'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
     completed = db.Column(db.Boolean, default=False)
@@ -77,7 +86,7 @@ def login():
     user = User.query.filter_by(username=username).first()
 
     if user and user.check_password(password):
-        access_token = create_access_token(identity={'username': user.username})
+        access_token = create_access_token(identity=user.username)
         return jsonify({"access_token": access_token}), 200
 
     return jsonify({"msg": "Invalid credentials"}), 401
@@ -88,7 +97,7 @@ def login():
 @jwt_required()
 def get_tasks():
     current_user = get_jwt_identity()  # Get the current logged-in user
-    user = User.query.filter_by(username=current_user['username']).first()
+    user = User.query.filter_by(username=current_user).first()
     
     page = request.args.get('page', 1, type=int)
     per_page = 10  # You can change the number of tasks per page
@@ -115,7 +124,7 @@ def get_tasks():
 @jwt_required()
 def create_task():
     current_user = get_jwt_identity()
-    user = User.query.filter_by(username=current_user['username']).first()
+    user = User.query.filter_by(username=current_user).first()
 
     data = request.get_json()
     title = data.get('title')
@@ -127,7 +136,7 @@ def create_task():
     db.session.commit()
 
     # Invalidate cache for this user as new task is added
-    cache.delete_pattern(f"tasks_user_{user.id}_*")
+    # cache.delete_pattern(f"tasks_user_{user.id}_*")
 
     return jsonify({"msg": "Task created successfully"}), 201
 
