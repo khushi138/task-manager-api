@@ -1,0 +1,28 @@
+config:
+  target: 'http://127.0.0.1:5000'
+  phases:
+    - duration: 60
+      arrivalRate: 2
+
+scenarios:
+  - name: "Login and access protected routes"
+    flow:
+      - post:
+          url: "/login"
+          json:
+            username: "john"
+            password: "password123"
+          capture:
+            json: "$.access_token"
+            as: "jwt_token"
+      - get:
+          url: "/tasks"
+          headers:
+            Authorization: "Bearer {{ jwt_token }}"
+      - post:
+          url: "/tasks"
+          headers:
+            Authorization: "Bearer {{ jwt_token }}"
+          json:
+            title: "Load Test Task"
+            description: "Generated during performance testing"

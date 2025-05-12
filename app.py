@@ -8,12 +8,15 @@ import redis
 from dotenv import load_dotenv
 from sqlalchemy import Index
 from urllib.parse import quote
+import logging
 
 # Load environment variables
 load_dotenv()
 
 # Initialize the Flask app
 app = Flask(__name__)
+
+
 
 
 
@@ -32,6 +35,9 @@ jwt = JWTManager(app)
 
 # Initialize Redis
 cache = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+
+# logging.basicConfig()
+# logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 # Database models
 class User(db.Model):
@@ -109,7 +115,9 @@ def get_tasks():
     if cached_tasks:
         return jsonify({"tasks": cached_tasks, "source": "cache"}), 200
 
-    tasks = Task.query.filter_by(user_id=user.id).paginate(page, per_page, False)
+    # tasks = Task.query.filter_by(user_id=user.id).paginate(page, per_page, False)
+    tasks = db.paginate(Task.query.filter_by(user_id=user.id), page=page, per_page=per_page)
+
 
     tasks_data = [{"id": task.id, "title": task.title, "completed": task.completed} for task in tasks.items]
 
@@ -118,6 +126,10 @@ def get_tasks():
 
     return jsonify({"tasks": tasks_data, "source": "db"}), 200
 
+
+def delete_cache_pattern(pattern):
+    for key in cache.scan_iter(pattern):
+        cache.delete(key)
 
 # Route to create a new task
 @app.route('/tasks', methods=['POST'])
@@ -137,6 +149,7 @@ def create_task():
 
     # Invalidate cache for this user as new task is added
     # cache.delete_pattern(f"tasks_user_{user.id}_*")
+    delete_cache_pattern(f"tasks_user_{user.id}_*")
 
     return jsonify({"msg": "Task created successfully"}), 201
 
@@ -144,19 +157,27 @@ def create_task():
 # Route to get weather data using a third-party API (OpenWeather) with caching
 @app.route('/weather', methods=['GET'])
 def get_weather():
-    city = request.args.get('city')
-    cache_key = f"weather_{city}"
 
+    city = request.args.get('city')
+    print("city name", city)
+    cache_key = f"weather_{city}"
+    cache.delete(cache_key)
     # Check if weather data is cached
     cached_weather = cache.get(cache_key)
-
+    print("cached key", cache_key)
     if cached_weather:
         return jsonify({"weather": cached_weather, "source": "cache"}), 200
 
     api_key = os.getenv('OPENWEATHER_API_KEY')
+    # new_key = os.getenv('API_KEY')
+   
+    # api_key = 'b6237dbce3a8b92f69816ffcabebeb37'
+    print("api key", api_key)
+
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}"
     
     response = requests.get(url)
+    print(response.json())
     weather_data = response.json()
 
     if weather_data.get('cod') != 200:
